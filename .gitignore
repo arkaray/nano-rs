@@ -1,6 +1,7 @@
 *~
 *.bak
 *.o
+*.a
 *.orig
 *.patch
 *.swp
