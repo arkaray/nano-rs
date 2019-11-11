@@ -602,10 +602,10 @@ pub extern "C" fn control_rep(c: i8) -> i8 {
 
 
 /* Return TRUE if wc is valid Unicode, and FALSE otherwise. */
-/*#[cfg(ENABLE_UTF8)]
+#[cfg(ENABLE_UTF8)]
 pub extern "C" fn is_valid_unicode(wc: char) -> bool {
-    ((0 <= wc && wc <= 0xD7FF) ||
-				(0xE000 <= wc && wc <= 0xFDCF) ||
-				(0xFDF0 <= wc && wc <= 0xFFFD) ||
-				(0xFFFF < wc && wc <= 0x10FFFF && (wc & 0xFFFF) <= 0xFFFD))
-}*/
+    ((0 <= wc as i32 && wc as i32 <= 0xD7FF) ||
+				(0xE000 <= wc as i32 && wc as i32 <= 0xFDCF) ||
+				(0xFDF0 <= wc as i32 && wc as i32 <= 0xFFFD) ||
+				(0xFFFF < wc as i32 && wc as i32 <= 0x10FFFF && (wc as i32 & 0xFFFF) <= 0xFFFD))
+}
