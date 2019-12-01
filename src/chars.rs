@@ -1,7 +1,14 @@
 #![crate_type = "staticlib"]
 
-// **TEMPORARY PLACE FOR CONSTANTS FROM NANO.H**
+use std::os::raw::c_char;
+use std::ffi::CStr;
+
+// **CONSTANTS FROM NANO.H**
 const DEL_CODE:i8 = 0x7f;
+#[cfg(ENABLE_UTF8)]
+const MAXCHARLEN:i8 = 6;
+#[cfg(not(ENABLE_UTF8))]
+const MAXCHARLEN:i8 = 1;
 
 static mut use_utf8: bool = false;
 
@@ -25,7 +32,6 @@ pub extern "C" fn using_utf8() -> bool
 }
 
 /* Concatenate two allocated strings, and free the second. */
-// Deprecate in rust
 // char *addstrings(char* str1, size_t len1, char* str2, size_t len2)
 // {
 // 	str1 = charealloc(str1, len1 + len2 + 1);
@@ -44,52 +50,43 @@ pub extern "C" fn is_byte(c: i32) -> bool {
 }
 
 /* This function is equivalent to isalpha() for multibyte characters. */
-// bool is_alpha_mbchar(const char *c)
-// {
-// #ifdef ENABLE_UTF8
-// 	if (use_utf8) {
-// 		wchar_t wc;
-
-// 		if (mbtowc(&wc, c, MAXCHARLEN) < 0)
-// 			return FALSE;
-
-// 		return iswalpha(wc);
-// 	} else
-// #endif
-// 		return isalpha((unsigned char)*c);
-// }
+#[no_mangle]
+pub extern "C" fn is_alpha_mbchar(c: *const c_char) -> bool {
+    let wc: char;
+    unsafe
+    {
+        wc = CStr::from_ptr(c).to_str()
+        .expect("Encountered invalid char in a call to is_alpha_mbchar")
+        .chars().nth(0).unwrap();
+    }
+    wc.is_alphabetic()
+}
 
 /* This function is equivalent to isalnum() for multibyte characters. */
-// bool is_alnum_mbchar(const char *c)
-// {
-// #ifdef ENABLE_UTF8
-// 	if (use_utf8) {
-// 		wchar_t wc;
-
-// 		if (mbtowc(&wc, c, MAXCHARLEN) < 0)
-// 			return FALSE;
-
-// 		return iswalnum(wc);
-// 	} else
-// #endif
-// 		return isalnum((unsigned char)*c);
-// }
+#[no_mangle]
+pub extern "C" fn is_alnum_mbchar(c: *const c_char) -> bool {
+    let wc: char;
+    unsafe
+    {
+        wc = CStr::from_ptr(c).to_str()
+        .expect("Encountered invalid char in a call to is_alnum_mbchar")
+        .chars().nth(0).unwrap();
+    }
+    wc.is_alphanumeric()
+}
 
 /* This function is equivalent to isblank() for multibyte characters. */
-// bool is_blank_mbchar(const char *c)
-// {
-// #ifdef ENABLE_UTF8
-// 	if (use_utf8) {
-// 		wchar_t wc;
-
-// 		if (mbtowc(&wc, c, MAXCHARLEN) < 0)
-// 			return FALSE;
-
-// 		return iswblank(wc);
-// 	} else
-// #endif
-// 		return isblank((unsigned char)*c);
-// }
+#[no_mangle]
+pub extern "C" fn is_blank_mbchar(c: *const c_char) -> bool {
+    let wc: char;
+    unsafe
+    {
+        wc = CStr::from_ptr(c).to_str()
+        .expect("Encountered invalid char in a call to is_blank_mbchar")
+        .chars().nth(0).unwrap();
+    }
+    wc.is_whitespace()
+}
 
 /* This function is equivalent to iscntrl(), except in that it only
  * handles non-high-bit control characters. */
@@ -102,32 +99,30 @@ pub extern "C" fn is_ascii_cntrl_char(c: i32) -> bool
 /* This function is equivalent to iscntrl() for multibyte characters,
  * except in that it also handles multibyte control characters with
  * their high bits set. */
-// bool is_cntrl_mbchar(const char *c)
-// {
-// #ifdef ENABLE_UTF8
-// 	if (use_utf8) {
-// 		return ((c[0] & 0xE0) == 0 || c[0] == 127 ||
-// 				((signed char)c[0] == -62 && (signed char)c[1] < -96));
-// 	} else
-// #endif
-// 		return (((unsigned char)*c & 0x60) == 0 || (unsigned char)*c == 127);
-// }
+ #[no_mangle]
+pub unsafe extern "C" fn is_cntrl_mbchar(c: *const c_char) -> bool
+{
+    if cfg!(ENABLE_UTF8) && using_utf8() 
+    {
+        return (*c as u8 & 0xE0) == 0 || *c == 127 ||
+ 				(*c == -62 && *c.offset(1) < -96);
+    }
+    ((*c as u8 & 0x60) == 0 || *c as u8 == 127)
+}
+
 
 /* This function is equivalent to ispunct() for multibyte characters. */
-// bool is_punct_mbchar(const char *c)
-// {
-// #ifdef ENABLE_UTF8
-// 	if (use_utf8) {
-// 		wchar_t wc;
-
-// 		if (mbtowc(&wc, c, MAXCHARLEN) < 0)
-// 			return FALSE;
-
-// 		return iswpunct(wc);
-// 	} else
-// #endif
-// 		return ispunct((unsigned char)*c);
-// }
+#[no_mangle]
+pub extern "C" fn is_punct_mbchar(c: *const c_char) -> bool {
+    let wc: char;
+    unsafe
+    {
+        wc = CStr::from_ptr(c).to_str()
+        .expect("Encountered invalid char in a call to is_alpha_mbchar")
+        .chars().nth(0).unwrap();
+    }
+    wc.is_ascii_punctuation()
+}
 
 /* Return TRUE when the given multibyte character c is a word-forming
  * character (that is: alphanumeric, or specified in wordchars, or
@@ -150,6 +145,17 @@ pub extern "C" fn is_ascii_cntrl_char(c: i32) -> bool
 
 // 	return (allow_punct && is_punct_mbchar(c));
 // }
+/* #[no_mangle]
+pub extern "C" fn is_word_mbchar(c: *const c_char, allow_punct: bool) -> bool
+{
+    if *c=='\0' as c_char {
+        return false;
+    }
+    if is_alnum_mbchar(c) {
+        return true;
+    }
+    if word_chars
+} */
 
 /* Return the visible representation of control character c. */
 #[no_mangle]
@@ -188,8 +194,24 @@ pub extern "C" fn control_rep(c: i8) -> i8 {
 // 		return control_rep(*c);
 // }
 
-// #ifdef ENABLE_UTF8
-/* Return the width in columns of the given (multibyte) character. */
+// #[no_mangle]
+// pub extern "C" fn control_mbrep(c: *const c_char, isdata: bool) -> c_char {
+//     /* An embedded newline is an encoded NUL if it is data*/
+//     if *c==('\n' as c_char) && (isdata || as_an_at){
+//         return '@' as c_char;
+//     }
+// }
+
+// #[no_mangle]
+// #[cfg(ENABLE_UTF8)]
+// /* Return the width in columns of the given (multibyte) character. */
+// pub extern "C" mbwidth(c:&const [i8]) -> i32 {
+//     if c[0] <= 0 {
+//         let wc:char;
+//         let width:i32;
+//         if 
+//     }
+// }
 // int mbwidth(const char *c)
 // {
 // 	/* Ask for the width only when the character isn't plain ASCII. */
@@ -238,41 +260,38 @@ pub extern "C" fn control_rep(c: i8) -> i8 {
 
 // 	return mb_char;
 // }
-
-/* Return the length (in bytes) of the character located at *pointer. */
-// int char_length(const char *pointer)
+// #[no_mangle]
+// pub extern "C" make_mbchar(code: i64, length: isize) -> *const c_char
 // {
-// #ifdef ENABLE_UTF8
-// 	/* If possibly a multibyte character, get its length; otherwise, it's 1. */
-// 	if ((signed char)*pointer < 0) {
-// 		int length = mblen(pointer, MAXCHARLEN);
 
-// 		return (length < 0 ? 1 : length);
-// 	} else
-// #endif
-// 		return 1;
 // }
+
+//#[no_mangle]
+/* Return the length (in bytes) of the character located at *pointer. */
+pub extern "C" fn char_length(pointer:*const c_char) ->usize
+{
+    let wc:char;
+	unsafe
+    {
+        wc = CStr::from_ptr(pointer).to_str()
+        .expect("Encountered invalid char in a call to char_length")
+        .chars().nth(0).unwrap();
+    }
+    wc.len_utf8()
+}
 
 /* Return the number of (multibyte) characters in the given string. */
-// size_t mbstrlen(const char *pointer)
-// {
-// 	size_t count = 0;
-
-// 	while (*pointer != '\0') {
-// #ifdef ENABLE_UTF8
-// 		if ((signed char)*pointer < 0) {
-// 			int length = mblen(pointer, MAXCHARLEN);
-
-// 			pointer += (length < 0 ? 1 : length);
-// 		} else
-// #endif
-// 			pointer++;
-
-// 		count++;
-// 	}
-
-// 	return count;
-// }
+#[no_mangle]
+pub extern "C" fn mbstrlen(pointer: *const c_char) -> usize {
+    let len: usize;
+    unsafe
+    {
+        len = CStr::from_ptr(pointer).to_str()
+        .expect("Encountered invalid char in a call to mbstrlen")
+        .len();
+    }
+    len
+}
 
 /* Parse a multibyte character from buf.  Return the number of bytes
  * used.  If chr isn't NULL, store the multibyte character in it.  If
@@ -592,14 +611,16 @@ pub extern "C" fn control_rep(c: i8) -> i8 {
 // #endif /* ENABLE_NANORC && (!NANO_TINY || ENABLE_JUSTIFY) */
 
 /* Return TRUE when the given string is empty or consists of only blanks. */
-// bool white_string(const char *string)
-// {
-// 	while (*string != '\0' && (is_blank_mbchar(string) || *string == '\r'))
-// 		string += char_length(string);
-
-// 	return !*string;
-// }
-
+#[no_mangle]
+pub extern "C" fn white_string(mut pointer: *const c_char) -> bool {
+    unsafe{    
+        while *pointer != ('\0' as c_char) && 
+        (is_blank_mbchar(pointer) || *pointer == ('\r' as c_char)){
+            pointer = (pointer as usize + char_length(pointer)) as *const c_char;
+        }
+        *pointer != 0
+    }
+}
 
 /* Return TRUE if wc is valid Unicode, and FALSE otherwise. */
 #[cfg(ENABLE_UTF8)]
