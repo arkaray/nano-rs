@@ -9,6 +9,7 @@ const DEL_CODE:i8 = 0x7f;
 const MAXCHARLEN:i8 = 6;
 #[cfg(not(ENABLE_UTF8))]
 const MAXCHARLEN:i8 = 1;
+const HIGHEST_POSITIVE:usize = (!0) >> 1;
 
 static mut use_utf8: bool = false;
 
@@ -154,7 +155,10 @@ pub extern "C" fn is_word_mbchar(c: *const c_char, allow_punct: bool) -> bool
     if is_alnum_mbchar(c) {
         return true;
     }
-    if word_chars
+    if !word_chars.is_null() && *word_chars!=('\0' as c_char) {
+        let symbol = Vec::with_capacity(MAXCHARLEN+1);
+        let symlen;
+    }
 } */
 
 /* Return the visible representation of control character c. */
@@ -341,49 +345,61 @@ pub extern "C" fn mbstrlen(pointer: *const c_char) -> usize {
 
 /* Return the index in buf of the beginning of the multibyte character
  * before the one at pos. */
-// size_t step_left(const char *buf, size_t pos)
-// {
-// #ifdef ENABLE_UTF8
-// 	if (use_utf8) {
-// 		size_t before, charlen = 0;
+#[no_mangle]
+pub extern "C" fn step_left(buf: *const c_char, pos: usize) -> usize
+{
+	if using_utf8() && cfg!(ENABLE_UTF8) {
+        let mut before:usize;
+        let mut charlen:usize = 0;
 
-// 		if (pos < 4)
-// 			before = 0;
-// 		else {
-// 			const char *ptr = buf + pos;
+		if pos < 4{
+            before = 0;
+        }
+		else {
+			let ptr:*const c_char = unsafe{buf.offset(pos as isize)};
 
-// 			/* Probe for a valid starter byte in the preceding four bytes. */
-// 			if ((signed char)*(--ptr) > -65)
-// 				before = pos - 1;
-// 			else if ((signed char)*(--ptr) > -65)
-// 				before = pos - 2;
-// 			else if ((signed char)*(--ptr) > -65)
-// 				before = pos - 3;
-// 			else if ((signed char)*(--ptr) > -65)
-// 				before = pos - 4;
-// 			else
-// 				before = pos - 1;
-// 		}
+            /* Probe for a valid starter byte in the preceding four bytes. */
+            unsafe {
+                if *ptr.offset(1) > -65
+                {
+                    before = pos - 1;
+                }
+                else if *ptr.offset(2) > -65{
+                    before = pos - 2;
+                }
+                else if *ptr.offset(3) > -65{
+                    before = pos - 3;
+                }
+                else if *ptr.offset(4) > -65{
+                    before = pos - 4;
+                }
+                else{
+                    before = pos - 1;
+                }
+            }
+		}
 
-// 		/* Move forward again until we reach the original character,
-// 		 * so we know the length of its preceding character. */
-// 		while (before < pos) {
-// 			charlen = char_length(buf + before);
-// 			before += charlen;
-// 		}
+		/* Move forward again until we reach the original character,
+		 * so we know the length of its preceding character. */
+		while before < pos {
+			charlen = char_length(unsafe{buf.offset(before as isize)});
+			before += charlen;
+		}
 
-// 		return before - charlen;
-// 	} else
-// #endif
-// 		return (pos == 0 ? 0 : pos - 1);
-// }
+		before - charlen
+    }
+    else
+    {
+        if pos == 0 {0} else {pos - 1}
+    }
+}
 
 /* Return the index in buf of the beginning of the multibyte character
  * after the one at pos. */
-// size_t step_right(const char *buf, size_t pos)
-// {
-// 	return pos + char_length(buf + pos);
-// }
+#[no_mangle]
+pub extern "C" fn step_right(buf: *const c_char, pos: usize) -> usize {
+    pos + char_length(unsafe{buf.offset(pos as isize)})
+}
 
 /* This function is equivalent to strcasecmp() for multibyte strings. */
 // int mbstrcasecmp(const char *s1, const char *s2)
