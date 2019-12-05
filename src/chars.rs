@@ -2,6 +2,8 @@
 
 use std::os::raw::c_char;
 use std::ffi::CStr;
+use std::str::Utf8Error;
+use unicode_width::UnicodeWidthChar;
 
 // **CONSTANTS FROM NANO.H**
 const DEL_CODE:i8 = 0x7f;
@@ -206,16 +208,16 @@ pub extern "C" fn control_rep(c: i8) -> i8 {
 //     }
 // }
 
-// #[no_mangle]
-// #[cfg(ENABLE_UTF8)]
-// /* Return the width in columns of the given (multibyte) character. */
-// pub extern "C" mbwidth(c:&const [i8]) -> i32 {
-//     if c[0] <= 0 {
-//         let wc:char;
-//         let width:i32;
-//         if 
-//     }
-// }
+fn mbtowc(c: *const c_char) -> Result<char, Utf8Error> {
+    unsafe
+    {
+        match CStr::from_ptr(c).to_str() {
+            Ok(v) => Ok(v.chars().nth(0).unwrap()),
+            Err(e) => Err(e)
+        }
+    }
+}
+
 // int mbwidth(const char *c)
 // {
 // 	/* Ask for the width only when the character isn't plain ASCII. */
@@ -236,6 +238,27 @@ pub extern "C" fn control_rep(c: i8) -> i8 {
 // 		return 1;
 // }
 // #endif
+
+#[no_mangle]
+#[cfg(ENABLE_UTF8)]
+pub extern "C" fn mbwidth(c: *const c_char) -> isize {
+    /* Ask for the width only when the character isn't plain ASCII. */
+	if *c <= 0 {
+		let wc:char;
+		let width:isize;
+
+		match mbtowc(c) {
+            Ok(v) => wc = v,
+            Err(e) => return 1
+        }
+        
+        match UnicodeWidthChar::width(wc) {
+            Some(v) => v,
+            None => 1
+        }
+    }
+    else {1}
+}
 
 /* Convert the Unicode value in code to a multibyte character, if possible.
  * If the conversion succeeds, return the (dynamically allocated) multibyte
@@ -625,6 +648,10 @@ pub extern "C" fn step_right(buf: *const c_char, pos: usize) -> usize {
 // 	return FALSE;
 // }
 // #endif /* ENABLE_NANORC && (!NANO_TINY || ENABLE_JUSTIFY) */
+/* #[cfg(all(ENABLE_NANORC,any(not(NANO_TINY),ENABLE_JUSTIFY)))]
+pub extern "C" has_blank_char(string: *const c_char) -> bool {
+    
+} */
 
 /* Return TRUE when the given string is empty or consists of only blanks. */
 #[no_mangle]
@@ -640,6 +667,7 @@ pub extern "C" fn white_string(mut pointer: *const c_char) -> bool {
 
 /* Return TRUE if wc is valid Unicode, and FALSE otherwise. */
 #[cfg(ENABLE_UTF8)]
+#[no_mangle]
 pub extern "C" fn is_valid_unicode(wc: char) -> bool {
     ((0 <= wc as i32 && wc as i32 <= 0xD7FF) ||
 				(0xE000 <= wc as i32 && wc as i32 <= 0xFDCF) ||
