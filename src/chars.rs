@@ -2,8 +2,10 @@
 
 use std::os::raw::c_char;
 use std::ffi::CStr;
+use std::ffi::CString;
 use std::str::Utf8Error;
-use unicode_width::UnicodeWidthChar;
+//use unicode_width::UnicodeWidthChar;
+use std::ptr;
 
 // **CONSTANTS FROM NANO.H**
 const DEL_CODE:i8 = 0x7f;
@@ -239,26 +241,26 @@ fn mbtowc(c: *const c_char) -> Result<char, Utf8Error> {
 // }
 // #endif
 
-#[no_mangle]
-#[cfg(ENABLE_UTF8)]
-pub extern "C" fn mbwidth(c: *const c_char) -> isize {
-    /* Ask for the width only when the character isn't plain ASCII. */
-	if *c <= 0 {
-		let wc:char;
-		let width:isize;
+// #[no_mangle]
+// #[cfg(ENABLE_UTF8)]
+// pub extern "C" fn mbwidth(c: *const c_char) -> isize {
+//     /* Ask for the width only when the character isn't plain ASCII. */
+// 	if *c <= 0 {
+// 		let wc:char;
+// 		let width:isize;
 
-		match mbtowc(c) {
-            Ok(v) => wc = v,
-            Err(e) => return 1
-        }
+// 		match mbtowc(c) {
+//             Ok(v) => wc = v,
+//             Err(e) => return 1
+//         }
         
-        match UnicodeWidthChar::width(wc) {
-            Some(v) => v,
-            None => 1
-        }
-    }
-    else {1}
-}
+//         match UnicodeWidthChar::width(wc) {
+//             Some(v) => v,
+//             None => 1
+//         }
+//     }
+//     else {1}
+// }
 
 /* Convert the Unicode value in code to a multibyte character, if possible.
  * If the conversion succeeds, return the (dynamically allocated) multibyte
@@ -425,152 +427,195 @@ pub extern "C" fn step_right(buf: *const c_char, pos: usize) -> usize {
 }
 
 /* This function is equivalent to strcasecmp() for multibyte strings. */
-// int mbstrcasecmp(const char *s1, const char *s2)
-// {
-// 	return mbstrncasecmp(s1, s2, HIGHEST_POSITIVE);
-// }
+#[no_mangle]
+#[cfg(ENABLE_UTF8)]
+pub extern "C" fn mbstrcasecmp(s1:*const c_char, s2:*const c_char) -> isize
+{
+	mbstrncasecmp(s1, s2, HIGHEST_POSITIVE)
+}
 
 /* This function is equivalent to strncasecmp() for multibyte strings. */
-// int mbstrncasecmp(const char *s1, const char *s2, size_t n)
-// {
-// #ifdef ENABLE_UTF8
-// 	if (use_utf8) {
-// 		wchar_t wc1, wc2;
+#[cfg(ENABLE_UTF8)]
+#[no_mangle]
+pub extern "C" fn mbstrncasecmp(mut s1:*const c_char,mut s2: *const c_char, mut n:usize) -> isize
+{
+    let mut wc1:char = '\0';//bad init
+    let mut wc2:char = '\0';//bad init
+    unsafe{
 
-// 		while (*s1 != '\0' && *s2 != '\0' && n > 0) {
-// 			bool bad1 = (mbtowc(&wc1, s1, MAXCHARLEN) < 0);
-// 			bool bad2 = (mbtowc(&wc2, s2, MAXCHARLEN) < 0);
+	    while *s1 != '\0' as i8 && *s2 != '\0' as i8 && n > 0 {
+			let bad1:bool = match mbtowc(s1) {
+                Ok(v)=>{wc1=v;true},
+                Err(e)=>false
+            };
+			let bad2:bool = match mbtowc(s2) {
+                Ok(v)=>{wc2=v;true},
+                Err(e)=>false
+            };
 
-// 			if (bad1 || bad2) {
-// 				if (*s1 != *s2)
-// 					return (unsigned char)*s1 - (unsigned char)*s2;
+			if bad1 || bad2 {
+				if *s1 != *s2 {
+                    return (*s1 as u8 - *s2 as u8) as isize;
+                }
 
-// 				if (bad1 != bad2)
-// 					return (bad1 ? 1 : -1);
-// 			} else {
-// 				int difference = towlower(wc1) - towlower(wc2);
+				if bad1 != bad2 {
+                    return if bad1 {1} else {-1};
+                }
+			} else {
+				let difference = (wc1.to_lowercase().nth(0).unwrap() as u64 - wc2.to_lowercase().nth(0).unwrap() as u64) as isize;
 
-// 				if (difference != 0)
-// 					return difference;
-// 			}
+				if difference != 0{
+                    return difference;
+                }
+			}
+            s1 = (s1 as usize + char_length(s1)) as *const c_char;
+            s2 = (s2 as usize + char_length(s2)) as *const c_char;
+			n-=1;
+		}
 
-// 			s1 += char_length(s1);
-// 			s2 += char_length(s2);
-// 			n--;
-// 		}
-
-// 		return (n > 0) ? ((unsigned char)*s1 - (unsigned char)*s2) : 0;
-// 	} else
-// #endif
-// 		return strncasecmp(s1, s2, n);
-// }
+        if n > 0 {(*s1 as u8 - *s2 as u8) as isize} else {0}
+    }
+}
 
 /* This function is equivalent to strcasestr() for multibyte strings. */
-// char *mbstrcasestr(const char *haystack, const char *needle)
-// {
-// #ifdef ENABLE_UTF8
-// 	if (use_utf8) {
-// 		size_t needle_len = mbstrlen(needle);
+#[cfg(ENABLE_UTF8)]
+#[no_mangle]
+pub extern "C" fn mbstrcasestr(mut haystack:*const c_char, needle:*const c_char) -> *const c_char
+{
+	unsafe {
+		let needle_len = mbstrlen(needle);
 
-// 		while (*haystack != '\0') {
-// 			if (mbstrncasecmp(haystack, needle, needle_len) == 0)
-// 				return (char *)haystack;
+		while *haystack != '\0' as i8 {
+            if mbstrncasecmp(haystack, needle, needle_len) == 0
+            {
+                return haystack;
+            }
+            haystack = (haystack as usize + char_length(haystack)) as *const c_char;
+		}
 
-// 			haystack += char_length(haystack);
-// 		}
+		ptr::null()
+	} 
+}
 
-// 		return NULL;
-// 	} else
-// #endif
-// 		return (char *)strcasestr(haystack, needle);
-// }
+//Compare n bytes of the pointer
+unsafe fn strncmp(a:*const c_char, b:*const c_char, n: usize) -> i8{
+    for i in 1..(n+1) {
+        if *a.offset(i as isize) != *b.offset(i as isize) {
+            return *a.offset(i as isize) - *b.offset(i as isize)
+        }
+    }
+    0
+}
+
+unsafe fn strncasecmp(a:*const c_char, b:*const c_char, n: usize) -> i8{
+    for i in 1..(n+1) {
+        if (*a.offset(i as isize) as u8 as char).to_lowercase().nth(0).unwrap() != (*b.offset(i as isize) as u8 as char).to_lowercase().nth(0).unwrap() {
+            return (*a.offset(i as isize) as u8 as char).to_lowercase().nth(0).unwrap() as i8 - (*b.offset(i as isize) as u8 as char).to_lowercase().nth(0).unwrap() as i8;
+        }
+    }
+    0
+}
 
 /* This function is equivalent to strstr(), except in that it scans the
  * string in reverse, starting at pointer. */
-// char *revstrstr(const char *haystack, const char *needle,
-// 		const char *pointer)
-// {
-// 	size_t needle_len = strlen(needle);
-// 	size_t tail_len = strlen(pointer);
+ #[no_mangle]
+pub extern "C" fn revstrstr(haystack:*const c_char, needle:*const c_char,
+		mut pointer:*const c_char) -> *const c_char
+{
+	let needle_len:usize = unsafe{CStr::from_ptr(needle)}.to_bytes().len();
+	let tail_len:usize = unsafe{CStr::from_ptr(pointer)}.to_bytes().len();
 
-// 	if (tail_len < needle_len)
-// 		pointer += tail_len - needle_len;
+	if tail_len < needle_len{
+        pointer = (pointer as usize + tail_len - needle_len) as *const c_char;
+    }
 
-// 	while (pointer >= haystack) {
-// 		if (strncmp(pointer, needle, needle_len) == 0)
-// 			return (char *)pointer;
-// 		pointer--;
-// 	}
+	while pointer >= haystack {
+		if unsafe {strncmp(pointer, needle, needle_len)} == 0 {
+            return pointer;
+        }
+        pointer= (pointer as usize - 1) as *const c_char;
+	}
 
-// 	return NULL;
-// }
+	ptr::null()
+}
 
 /* This function is equivalent to strcasestr(), except in that it scans
  * the string in reverse, starting at pointer. */
-// char *revstrcasestr(const char *haystack, const char *needle,
-// 		const char *pointer)
-// {
-// 	size_t needle_len = strlen(needle);
-// 	size_t tail_len = strlen(pointer);
+ #[no_mangle]
+pub extern "C" fn revstrcasestr(haystack:*const c_char, needle:*const c_char,
+		mut pointer:*const c_char) -> *const c_char
+{
+	let needle_len:usize = unsafe{CStr::from_ptr(needle)}.to_bytes().len();
+	let tail_len:usize = unsafe{CStr::from_ptr(pointer)}.to_bytes().len();
 
-// 	if (tail_len < needle_len)
-// 		pointer += tail_len - needle_len;
+	if tail_len < needle_len
+    {
+        pointer = (pointer as usize + tail_len - needle_len) as *const c_char;
+    }
 
-// 	while (pointer >= haystack) {
-// 		if (strncasecmp(pointer, needle, needle_len) == 0)
-// 			return (char *)pointer;
-// 		pointer--;
-// 	}
+	while pointer as usize >= haystack as usize {
+		if unsafe{strncasecmp(pointer, needle, needle_len)} == 0
+		{
+            return pointer;
+        }
+		pointer= (pointer as usize - 1) as *const c_char;
+	}
 
-// 	return NULL;
-// }
+	ptr::null()
+}
 
 // /* This function is equivalent to strcasestr() for multibyte strings,
 //  * except in that it scans the string in reverse, starting at pointer. */
-// char *mbrevstrcasestr(const char *haystack, const char *needle,
-// 		const char *pointer)
+#[no_mangle]
+pub extern "C" fn mbrevstrcasestr(haystack:*const c_char, needle:*const c_char,
+		mut pointer:*const c_char) -> *const c_char
+{
+    unsafe {
+		let needle_len = mbstrlen(needle);
+		let tail_len = mbstrlen(pointer);
+
+		if tail_len < needle_len
+		{
+            pointer = (pointer as usize + tail_len - needle_len) as *const c_char;
+        }
+
+		if pointer < haystack
+		{
+            return ptr::null();
+        }
+
+		loop {
+			if mbstrncasecmp(pointer, needle, needle_len) == 0
+			{
+                return pointer;
+            }
+
+			if pointer == haystack
+			{
+                return ptr::null();
+            }
+
+			pointer = (haystack as usize + step_left(haystack, pointer as usize - haystack as usize)) as *const c_char;
+		}
+	} 
+}
+
+// #[cfg(any(not(NANO_TINY,ENABLE_JUSTIFY)]
+// /* This function is equivalent to strchr() for multibyte strings. */
+// pub extern "C" mbstrchr(string:*const c_char, chr:*const c_char) -> *const c_char
 // {
-// #ifdef ENABLE_UTF8
-// 	if (use_utf8) {
-// 		size_t needle_len = mbstrlen(needle);
-// 		size_t tail_len = mbstrlen(pointer);
+// 	unsafe {
+//         let mut bad_s = false;
+//         let mut bad_c = false;
+// 		char ws, wc;
 
-// 		if (tail_len < needle_len)
-// 			pointer += tail_len - needle_len;
-
-// 		if (pointer < haystack)
-// 			return NULL;
-
-// 		while (TRUE) {
-// 			if (mbstrncasecmp(pointer, needle, needle_len) == 0)
-// 				return (char *)pointer;
-
-// 			if (pointer == haystack)
-// 				return NULL;
-
-// 			pointer = haystack + step_left(haystack, pointer - haystack);
-// 		}
-// 	} else
-// #endif
-// 		return revstrcasestr(haystack, needle, pointer);
-// }
-
-// #if !defined(NANO_TINY) || defined(ENABLE_JUSTIFY)
-/* This function is equivalent to strchr() for multibyte strings. */
-// char *mbstrchr(const char *string, const char *chr)
-// {
-// #ifdef ENABLE_UTF8
-// 	if (use_utf8) {
-// 		bool bad_s = FALSE, bad_c = FALSE;
-// 		wchar_t ws, wc;
-
-// 		if (mbtowc(&wc, chr, MAXCHARLEN) < 0) {
-// 			wc = (unsigned char)*chr;
-// 			bad_c = TRUE;
+// 		match mbtowc(chr) {
+//             Ok(v) => wc = v,
+// 			Err(e) => wc = *chr as u8;bad_c = true,
 // 		}
 
-// 		while (*string != '\0') {
-// 			int symlen = mbtowc(&ws, string, MAXCHARLEN);
+// 		while *string != '\0' {
+// 			let symlen = mbtowc(&ws, string, MAXCHARLEN);
 
 // 			if (symlen < 0) {
 // 				ws = (unsigned char)*string;
@@ -586,12 +631,9 @@ pub extern "C" fn step_right(buf: *const c_char, pos: usize) -> usize {
 // 		if (*string == '\0')
 // 			return NULL;
 
-// 		return (char *)string;
-// 	} else
-// #endif
-// 		return strchr(string, *chr);
+// 		return string;
+// 	}
 // }
-// #endif /* !NANO_TINY || ENABLE_JUSTIFY */
 
 // #ifndef NANO_TINY
 /* Locate, in the given string, the first occurrence of any of
